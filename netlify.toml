@@ -1,0 +1,36 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[functions."poll-deals"]
+  schedule = "0 */2 * * *"
+
+[[redirects]]
+  from = "/api/deals"
+  to = "/.netlify/functions/deals"
+  status = 200
+
+[[redirects]]
+  from = "/api/poll"
+  to = "/.netlify/functions/poll-deals"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
