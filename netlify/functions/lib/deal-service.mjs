@@ -20,6 +20,8 @@ export async function collectDeals({ minDiscount = 25, providers = [fetchBrickSl
       rationale: `${discount}% below RRP${comparisons[0] ? ` and ${deal.price < comparisons[0].price ? `£${(comparisons[0].price - deal.price).toFixed(2)} cheaper than ${comparisons[0].source}` : `cross-checked with ${comparisons[0].source}`}` : ''}.`,
       availability: deal.source === 'Argos' && deal.localStockStatus !== 'available'
         ? `Check Deal first, then ${(deal.preferredStores || ['Deal', 'Dover', 'Ramsgate', 'Folkestone', 'Canterbury']).slice(1).join(', ')}`
+        : deal.source === 'Brick Ranker' && deal.priceVerified
+        ? `Amazon price checked live${deal.voucher ? ' — verify voucher at checkout' : ''}`
         : deal.voucher
         ? `${deal.voucherStatus === 'official' ? 'Official' : 'Reported'} voucher${deal.voucherCode ? ` ${deal.voucherCode}` : ''} — verify at checkout`
         : deal.primeStatus === 'confirmed' ? 'Amazon Prime confirmed by source' : 'Delivery and voucher status unverified'
