@@ -1,5 +1,9 @@
 import { collectDealsWithStatus } from './lib/deal-service.mjs';
-export default async () => {
+export default async request => {
   const result = await collectDealsWithStatus();
-  return Response.json({ ...result, source:'live', fetchedAt:new Date().toISOString() }, { headers:{'Cache-Control':'public, max-age=300'} });
+  const manual = new URL(request.url).searchParams.has('refresh');
+  return Response.json(
+    { ...result, source:'live', fetchedAt:new Date().toISOString() },
+    { headers:{'Cache-Control':manual?'no-store':'public, max-age=300'} }
+  );
 };
