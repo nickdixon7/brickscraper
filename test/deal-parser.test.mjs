@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseBrickSleuth } from '../netlify/functions/providers/brick-sleuth.mjs';
-import { parseBrickRanker } from '../netlify/functions/providers/brick-ranker.mjs';
+import { parseAmazonListing, parseBrickRanker } from '../netlify/functions/providers/brick-ranker.mjs';
 import { parseArgos } from '../netlify/functions/providers/argos.mjs';
 import { collectDeals } from '../netlify/functions/lib/deal-service.mjs';
 
@@ -31,6 +31,24 @@ test('parses multiple Brick Ranker table rows and direct Amazon links', async ()
   assert.match(deals[1].url, /tag=brickranker-21&linkCode=ogi/);
   assert.equal(deals[2].url, 'https://amzn.to/3Roses28');
   assert.ok(deals.every(item => item.primeStatus === 'unverified'));
+});
+
+test('replaces a stale Brick Ranker price with the live Amazon listing price', () => {
+  const candidate = { setNumber: '43270', name: "Moana's Adventure Canoe", source: 'Brick Ranker', price: 34.99, normalPrice: 54.99, url: 'https://amazon.co.uk/dp/example' };
+  const html = '<div id="corePriceDisplay_desktop_feature_div"><span class="a-price"><span class="a-offscreen">£43.99</span></span></div>';
+  const result = parseAmazonListing(html, candidate);
+  assert.equal(result.price, 43.99);
+  assert.equal(result.priceVerified, true);
+  assert.equal(result.voucher, false);
+});
+
+test('applies a voucher only after reading the live Amazon shelf price', () => {
+  const candidate = { setNumber: '43270', source: 'Brick Ranker', price: 34.99, normalPrice: 54.99, url: 'https://amazon.co.uk/dp/example' };
+  const html = '<div id="corePriceDisplay_desktop_feature_div"><span class="a-offscreen">£43.99</span><p>Save 10% with voucher</p></div>';
+  const result = parseAmazonListing(html, candidate);
+  assert.equal(result.shelfPrice, 43.99);
+  assert.equal(result.price, 39.59);
+  assert.equal(result.voucherPercent, 10);
 });
 
 test('parses Argos offers and applies an official voucher checkout price', async () => {
