@@ -14,6 +14,8 @@ function App(){
   const [deals,setDeals]=useState([]);
   const [history,setHistory]=useState(()=>JSON.parse(localStorage.getItem('brick-history')||'[]'));
   const [loading,setLoading]=useState(false);
+  const [progress,setProgress]=useState(0);
+  const [scanMessage,setScanMessage]=useState('');
   const [detail,setDetail]=useState(null);
   const [filter,setFilter]=useState('All');
   const [lastScan,setLastScan]=useState(new Date());
@@ -23,14 +25,35 @@ function App(){
   useEffect(()=>{ fetchDeals(false); if('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js'); },[]);
   async function fetchDeals(manual=true){
     setLoading(true);
-    try { const res=await fetch(manual?'/api/poll':'/api/deals'); if(!res.ok) throw new Error(); const data=await res.json(); setDeals(data.deals || []); }
-    catch { setDeals([]); }
-    finally { setLastScan(new Date()); setLoading(false); if(manual) setHistory(h=>[{id:Date.now(),time:new Date().toISOString(),found:filtered.length},...h]); }
+    setProgress(8);
+    setScanMessage('Contacting deal sources…');
+    const timer=setInterval(()=>setProgress(value=>Math.min(92,value+Math.max(1,Math.round((92-value)/7)))),350);
+    let found=0;
+    try {
+      const res=await fetch(manual?'/api/poll':'/api/deals');
+      if(!res.ok) throw new Error(`Scan request failed (${res.status})`);
+      const data=await res.json();
+      const nextDeals=data.deals || [];
+      found=nextDeals.filter(d=>d.discount>=settings.minDiscount && (d.source==='Brick Sleuth'?settings.brickSleuth:settings.brickRanker)).length;
+      setDeals(nextDeals);
+      const failed=(data.sourceStatus || []).filter(source=>!source.ok);
+      setScanMessage(failed.length
+        ? `${found} deals found. ${failed.map(source=>`${source.source}: ${source.error}`).join(' · ')}`
+        : `${found} qualifying deals found.`);
+    }
+    catch(error) { setDeals([]); setScanMessage(error.message || 'Scan failed. Please try again.'); }
+    finally {
+      clearInterval(timer);
+      setProgress(100);
+      setLastScan(new Date());
+      setLoading(false);
+      if(manual) setHistory(h=>[{id:Date.now(),time:new Date().toISOString(),found},...h]);
+    }
   }
   return <div className="app-shell">
     <header><div><span className="eyebrow"><span className="live-dot"/> LIVE SCOUT</span><h1>Brick Scout</h1><p>LEGO deals worth your attention.</p></div><button className="icon-button" onClick={()=>setTab('settings')} aria-label="Settings"><Settings size={21}/></button></header>
     {tab==='deals' && <main>
-      <section className="scan-card"><div className="scan-top"><div className="radar"><Radar size={23}/></div><div><strong>{filtered.length} qualifying deals</strong><span>Last checked {ago(lastScan)}</span></div></div><button className="scan-button" disabled={loading} onClick={()=>fetchDeals(true)}><RefreshCw size={18} className={loading?'spin':''}/>{loading?'SCANNING…':'SCRAPE NOW'}</button><p className="next-run"><Clock3 size={14}/> Auto-scan every 2 hours</p></section>
+      <section className="scan-card"><div className="scan-top"><div className="radar"><Radar size={23}/></div><div><strong>{filtered.length} qualifying deals</strong><span>Last checked {ago(lastScan)}</span></div></div><button className="scan-button" disabled={loading} onClick={()=>fetchDeals(true)}><RefreshCw size={18} className={loading?'spin':''}/>{loading?`SCANNING… ${progress}%`:'SCRAPE NOW'}</button>{loading&&<div className="scan-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><i style={{width:`${progress}%`}}/></div>}{scanMessage&&<p className={`scan-message ${/failed|responded|timed out|error/i.test(scanMessage)?'warning':''}`}>{scanMessage}</p>}<p className="next-run"><Clock3 size={14}/> Auto-scan every 2 hours</p></section>
       <div className="section-heading"><div><span className="kicker">OPPORTUNITY FEED</span><h2>Latest deals</h2></div><SlidersHorizontal size={20}/></div>
       <div className="chips">{['All','BUY','MAYBE','SKIP'].map(x=><button key={x} className={filter===x?'active':''} onClick={()=>setFilter(x)}>{x}</button>)}</div>
       <div className="deal-list">{filtered.map(d=><article className="deal-card" key={`${d.source}-${d.setNumber}`} onClick={()=>setDetail(d)}><div className="deal-head"><div className="retailer source">{d.source}</div><span className="updated">{ago(d.updatedAt)}</span></div><div className="deal-main"><div className="set-art"><span>{d.setNumber}</span><b>LEGO</b></div><div className="deal-copy"><span className="set-no">LEGO® {d.setNumber}</span><h3>{d.name}</h3><p>{d.primeStatus==='confirmed'?'Prime confirmed':'Prime unverified'}</p></div><ChevronRight className="chevron" size={20}/></div><div className="price-row"><div><span>NOW</span><strong>{money(d.price)}</strong></div><div><span>WAS</span><s>{money(d.normalPrice)}</s></div><div className="discount">−{d.discount}%</div></div><div className="verdict"><span className={`rating ${d.rating.toLowerCase()}`}>{d.rating}</span><div><b>{d.source}</b><p>{d.rationale}</p></div></div><div className="availability"><Store size={15}/>{d.availability}</div></article>)}</div>
