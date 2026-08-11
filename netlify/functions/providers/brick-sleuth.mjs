@@ -16,14 +16,43 @@ function embeddedJson(html) {
   // Current App Router pages stream records in self.__next_f.push([id, "..."])
   // chunks rather than a single __NEXT_DATA__ element.
   for (const script of html.matchAll(/<script\b[^>]*>([\s\S]*?self\.__next_f\.push[\s\S]*?)<\/script>/gi)) {
-    for (const push of script[1].matchAll(/self\.__next_f\.push\((\[[\s\S]*?\])\)\s*;?/g)) {
+    for (const argument of nextPushArguments(script[1])) {
       try {
-        const chunk = JSON.parse(push[1]);
+        const chunk = JSON.parse(argument);
         if (typeof chunk[1] === 'string') values.push(...jsonObjects(chunk[1]));
       } catch { /* A streamed chunk may not contain deal JSON. */ }
     }
   }
   return values;
+}
+
+// Regex cannot safely capture a streamed push argument because the encoded
+// payload itself contains arrays. Scan brackets while respecting JSON strings.
+function nextPushArguments(script) {
+  const marker = 'self.__next_f.push(';
+  const output = [];
+  let cursor = 0;
+  while ((cursor = script.indexOf(marker, cursor)) !== -1) {
+    const start = script.indexOf('[', cursor + marker.length);
+    if (start === -1) break;
+    let depth = 0, quoted = false, escaped = false;
+    for (let end = start; end < script.length; end += 1) {
+      const char = script[end];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === '[') depth += 1;
+      else if (char === ']' && --depth === 0) {
+        output.push(script.slice(start, end + 1));
+        cursor = end + 1;
+        break;
+      }
+    }
+    if (cursor <= start) cursor = start + 1;
+  }
+  return output;
 }
 
 function jsonObjects(chunk) {

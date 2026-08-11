@@ -18,3 +18,21 @@ export async function collectDeals({ minDiscount = 25, providers = [fetchBrickSl
   }
   return [...cheapest.values()].sort((a, b) => b.discount - a.discount || a.price - b.price);
 }
+
+export async function collectDealsWithStatus({ minDiscount = 25 } = {}) {
+  const providers = [
+    { name: 'Brick Sleuth', run: fetchBrickSleuthDeals },
+    { name: 'Brick Ranker', run: fetchBrickRankerDeals }
+  ];
+  const settled = await Promise.allSettled(providers.map(provider => provider.run()));
+  const sourceStatus = settled.map((result, index) => ({
+    source: providers[index].name,
+    ok: result.status === 'fulfilled',
+    found: result.status === 'fulfilled' ? result.value.length : 0,
+    error: result.status === 'rejected' ? String(result.reason?.message || result.reason || 'Source failed') : undefined
+  }));
+  const successfulProviders = settled
+    .filter(result => result.status === 'fulfilled')
+    .map(result => async () => result.value);
+  return { deals: await collectDeals({ minDiscount, providers: successfulProviders }), sourceStatus };
+}

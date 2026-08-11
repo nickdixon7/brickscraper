@@ -1,6 +1,6 @@
-import { collectDeals } from './lib/deal-service.mjs';
+import { collectDealsWithStatus } from './lib/deal-service.mjs';
 export default async () => {
-  const deals = await collectDeals();
+  const result = await collectDealsWithStatus();
   // TODO: Persist snapshots to Netlify Blobs/Supabase and dispatch opted-in alerts here.
-  return Response.json({ deals, source:'live', fetchedAt:new Date().toISOString() });
+  return Response.json({ ...result, source:'live', fetchedAt:new Date().toISOString() });
 };
