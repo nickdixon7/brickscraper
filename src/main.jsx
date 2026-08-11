@@ -31,7 +31,8 @@ function App(){
     const timer=setInterval(()=>setProgress(value=>Math.min(92,value+Math.max(1,Math.round((92-value)/7)))),350);
     let found=0;
     try {
-      const res=await fetch(manual?'/api/poll':'/api/deals');
+      const endpoint=manual?`/api/deals?refresh=${Date.now()}`:'/api/deals';
+      const res=await fetch(endpoint,{cache:manual?'no-store':'default'});
       if(!res.ok) throw new Error(`Scan request failed (${res.status})`);
       const data=await res.json();
       const nextDeals=data.deals || [];
