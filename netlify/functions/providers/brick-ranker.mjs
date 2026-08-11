@@ -22,15 +22,42 @@ export function parseBrickRanker(html, pageUrl = BRICK_RANKER_URL) {
       .replace(/<span\b(?=[^>]*style=["'][^"']*text-decoration\s*:\s*line-through)[^>]*>[\s\S]*?<\/span>/gi, ' ');
     const currentPrice = number(text(withoutCrossed).match(/£\s*[\d,]+(?:\.\d{1,2})?/i)?.[0]);
     const title = attribute(image, 'alt')?.replace(/\s*(?:box|image|set)\s*$/i, '') || text(amazonAnchor?.[2]);
-    return deal({
+    const parsed = deal({
       source: 'Brick Ranker', setNumber, name: title, price: currentPrice, normalPrice,
       link: url(amazonAnchor?.[1], pageUrl), primeConfirmed: false
     });
+    const voucherText = text(row).match(/(?:voucher|coupon|tick (?:the )?box)[^£%]{0,50}(?:£\s*[\d.]+|\d+%)/i)?.[0];
+    return parsed && { ...parsed, retailer: 'Amazon UK', voucher: Boolean(voucherText), voucherStatus: voucherText ? 'reported' : undefined, voucherText };
   }), 100);
 }
 
 export async function fetchBrickRankerDeals({ fetchImpl = fetch } = {}) {
   const response = await fetchImpl(BRICK_RANKER_URL, { headers: { 'User-Agent': 'Brick Scout/1.0 (+deal aggregator)' }, signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new Error(`Brick Ranker responded with ${response.status}`);
-  return parseBrickRanker(await response.text());
+  const deals = parseBrickRanker(await response.text());
+  const limit = Math.max(0, Math.min(20, Number(process.env.AMAZON_VOUCHER_CHECK_LIMIT ?? 12)));
+  const checked = await Promise.all(deals.slice(0, limit).map(item => checkAmazonVoucher(item, fetchImpl)));
+  return [...checked, ...deals.slice(limit)];
+}
+
+async function checkAmazonVoucher(item, fetchImpl) {
+  try {
+    const response = await fetchImpl(item.url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Brick Scout/1.0)', 'Accept-Language': 'en-GB,en;q=0.9' },
+      redirect: 'follow', signal: AbortSignal.timeout(4_000)
+    });
+    if (!response.ok) return item;
+    const pageText = text(await response.text());
+    const voucher = pageText.match(/(?:save|extra)\s*(\d{1,2})%[^.]{0,80}(?:voucher|coupon)|(?:voucher|coupon)[^.]{0,80}(\d{1,2})%/i);
+    const amount = pageText.match(/(?:save|extra)\s*£\s*([\d.]+)[^.]{0,80}(?:voucher|coupon)|(?:voucher|coupon)[^.]{0,80}£\s*([\d.]+)/i);
+    const percent = Number(voucher?.[1] ?? voucher?.[2]);
+    const pounds = Number(amount?.[1] ?? amount?.[2]);
+    if (!percent && !pounds) return item;
+    const effectivePrice = Math.max(0.01, Math.round((percent ? item.price * (1 - percent / 100) : item.price - pounds) * 100) / 100);
+    return {
+      ...item, price: effectivePrice, shelfPrice: item.price, voucher: true,
+      voucherPercent: percent || undefined, voucherAmount: pounds || undefined,
+      voucherStatus: 'listing', voucherText: percent ? `${percent}% Amazon voucher` : `£${pounds.toFixed(2)} Amazon voucher`
+    };
+  } catch { return item; }
 }

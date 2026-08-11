@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseBrickSleuth } from '../netlify/functions/providers/brick-sleuth.mjs';
 import { parseBrickRanker } from '../netlify/functions/providers/brick-ranker.mjs';
+import { parseArgos } from '../netlify/functions/providers/argos.mjs';
 import { collectDeals } from '../netlify/functions/lib/deal-service.mjs';
 
 const fixture = name => readFile(new URL(`fixtures/${name}`, import.meta.url), 'utf8');
@@ -32,6 +33,16 @@ test('parses multiple Brick Ranker table rows and direct Amazon links', async ()
   assert.ok(deals.every(item => item.primeStatus === 'unverified'));
 });
 
+test('parses Argos offers and applies an official voucher checkout price', async () => {
+  const html = await fixture('argos-lego-offers.html');
+  const offers = parseArgos(html);
+  assert.deepEqual(offers.map(item => item.setNumber), ['60478', '11504']);
+  assert.deepEqual(offers.map(item => item.price), [28, 44]);
+  const vouchers = parseArgos(html, { voucherCode: 'LEGO25', voucherPercent: 25 });
+  assert.deepEqual(vouchers.map(item => item.price), [21, 33]);
+  assert.ok(vouchers.every(item => item.voucherStatus === 'official'));
+});
+
 test('keeps the cheapest set across sources and calculates discounts', async () => {
   const sleuth = parseBrickSleuth(await fixture('brick-sleuth-deals.html'));
   const ranker = parseBrickRanker(await fixture('brick-ranker-amazon-uk.html'));
@@ -50,4 +61,15 @@ test('caps both source parsers at 100 deals', async () => {
   const rankerHtml = `<table>${Array.from({ length: 105 }, (_, index) => `<tr><td><img src="/${10000 + index}.png" alt="LEGO ${10000 + index} set"></td><td><a href="https://amazon.co.uk/dp/${index}">Amazon</a> £50 <del>£100</del></td></tr>`).join('')}</table>`;
   assert.equal(parseBrickSleuth(sleuthHtml).length, 100);
   assert.equal(parseBrickRanker(rankerHtml).length, 100);
+});
+
+test('prioritises vouchers and attaches cross-retailer alternatives', async () => {
+  const base = { setNumber: '60478', name: 'Cement Mixer', normalPrice: 35, primeStatus: 'unverified', updatedAt: new Date().toISOString() };
+  const amazon = { ...base, id: 'amazon-60478', source: 'Brick Ranker', price: 24.5, url: 'https://amazon.co.uk/example' };
+  const argos = { ...base, id: 'argos-60478', source: 'Argos', price: 21, shelfPrice: 28, url: 'https://argos.co.uk/example', voucher: true, voucherCode: 'LEGO25', voucherStatus: 'official' };
+  const other = { ...base, id: 'other-11504', setNumber: '11504', source: 'Brick Sleuth', price: 25, normalPrice: 40, url: 'https://bricksleuth.com/example' };
+  const deals = await collectDeals({ providers: [async () => [amazon], async () => [argos, other]] });
+  assert.equal(deals[0].source, 'Argos');
+  assert.equal(deals[0].voucherCode, 'LEGO25');
+  assert.deepEqual(deals[0].alternatives, [{ source: 'Brick Ranker', price: 24.5, url: amazon.url }]);
 });
