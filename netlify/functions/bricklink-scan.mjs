@@ -1,5 +1,6 @@
 import { fetchBrickLinkListings, normalizeBrickLinkPayload } from './providers/bricklink.mjs';
 import { runBrickLinkBatch } from './lib/bricklink-scan.mjs';
+import { marketValidationQueue, normalizeMarketCache } from './lib/market-cache.mjs';
 
 function json(statusCode, body) {
   return {
@@ -28,7 +29,7 @@ export async function handler(event = {}) {
     const query = event.queryStringParameters || {};
     const cursor = Number(body.cursor ?? query.cursor ?? 0);
     const batchSize = Math.min(1000, Math.max(1, Number(body.batchSize ?? query.batchSize ?? 200)));
-    const marketCache = body.marketCache || {};
+    const marketCache = normalizeMarketCache(body.marketCache || {});
     const marketOverrides = body.marketOverrides || {};
 
     let listings;
@@ -44,11 +45,13 @@ export async function handler(event = {}) {
       marketCache,
       marketOverrides
     });
+    const validationQueue = marketValidationQueue(result.candidates, marketCache);
 
     return json(200, {
       source: 'BrickLink',
       mode: 'deep-sourcing',
       ...result,
+      validationQueue,
       progressPct: result.total ? Math.round(((result.cursor + result.processed) / result.total) * 100) : 100,
       note: result.nextCursor == null
         ? 'Scan complete for the supplied listing feed.'
